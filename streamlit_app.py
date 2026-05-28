@@ -41,35 +41,57 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better contrast
+# Custom CSS for maximum contrast
 st.markdown("""
     <style>
-    /* Make sidebar text lighter */
+    /* Sidebar styling */
     [data-testid="stSidebar"] {
-        background-color: #1a1a1a;
+        background-color: #0d0d0d !important;
     }
 
-    /* Radio button text - make white */
+    /* All text in sidebar - bright white */
+    [data-testid="stSidebar"] * {
+        color: #ffffff !important;
+    }
+
+    /* Labels and text */
     [data-testid="stSidebar"] label {
         color: #ffffff !important;
-        font-weight: 500;
+        font-weight: bold !important;
+        font-size: 14px !important;
     }
 
-    /* Radio button labels */
+    /* Radio buttons */
     [data-testid="stSidebar"] div[role="radiogroup"] label {
         color: #ffffff !important;
-        font-size: 15px;
-        font-weight: 500;
+        font-weight: bold !important;
+        font-size: 15px !important;
+        text-shadow: 0 0 2px rgba(0,0,0,0.8) !important;
     }
 
-    /* Select box text */
-    [data-testid="stSidebar"] div[data-baseweb="select"] {
+    /* Headings in sidebar */
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: #00d4ff !important;
+        font-weight: bold !important;
+    }
+
+    /* Select box */
+    [data-testid="stSidebar"] div[data-baseweb="select"] label {
         color: #ffffff !important;
+        font-weight: bold !important;
     }
 
-    /* Input text */
+    /* Input fields */
     [data-testid="stSidebar"] input {
         color: #ffffff !important;
+        background-color: #333333 !important;
+    }
+
+    /* Buttons */
+    [data-testid="stSidebar"] button {
+        font-weight: bold !important;
+        color: white !important;
     }
     </style>
     """, unsafe_allow_html=True)
