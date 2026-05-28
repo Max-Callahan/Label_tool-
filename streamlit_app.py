@@ -335,7 +335,7 @@ with col_map:
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=13,
-        tiles="OpenStreetMap"
+        tiles="Esri.WorldImagery"
     )
 
     # Draw all features (context)
