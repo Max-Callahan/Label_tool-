@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed May 27 20:04:33 2026
+Shapefile Feature Browser - Multi-County Edition
+Interactive water body labeling tool for multiple counties.
 
-@author: mcallahan
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Shapefile Feature Browser - Streamlit Web App
-Interactive water body labeling tool running in the browser.
+Folder structure:
+data/county_NHD/
+├── Imperial/
+│   ├── Imperial_waterbodies.shp
+│   ├── Imperial_waterbodies.shx
+│   ├── Imperial_waterbodies.dbf
+│   └── Imperial_waterbodies.prj
+├── Kern/
+│   ├── Kern_waterbodies.shp
+│   └── ...
+└── ...
 
 Run: streamlit run streamlit_app.py
-Deploy: Push to GitHub → Streamlit Cloud auto-deploys
 """
 
 import streamlit as st
@@ -26,7 +30,7 @@ warnings.filterwarnings('ignore')
 # ══════════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
-SHAPEFILE_PATH = "data/Imperial_waterbodies.shp"
+DATA_ROOT = Path("data/county_NHD")
 LABEL_OPTIONS = ("Lake", "Reservoir", "Pond", "Canal", "River", "Error")
 
 # Page config
@@ -37,41 +41,133 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Dark theme CSS
+# Custom CSS for better contrast
 st.markdown("""
     <style>
+    /* Make sidebar text lighter */
     [data-testid="stSidebar"] {
         background-color: #1a1a1a;
     }
-    .main {
-        background-color: #fafbfc;
+
+    /* Radio button text - make white */
+    [data-testid="stSidebar"] label {
+        color: #ffffff !important;
+        font-weight: 500;
     }
-    h1, h2, h3 {
-        color: #24292e;
+
+    /* Radio button labels */
+    [data-testid="stSidebar"] div[role="radiogroup"] label {
+        color: #ffffff !important;
+        font-size: 15px;
+        font-weight: 500;
+    }
+
+    /* Select box text */
+    [data-testid="stSidebar"] div[data-baseweb="select"] {
+        color: #ffffff !important;
+    }
+
+    /* Input text */
+    [data-testid="stSidebar"] input {
+        color: #ffffff !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SESSION STATE
+# UTILITY FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
-@st.cache_resource
-def load_shapefile():
-    """Load shapefile (cached)."""
-    if not Path(SHAPEFILE_PATH).exists():
-        st.error(f"❌ Shapefile not found: {SHAPEFILE_PATH}")
-        st.info("Make sure Imperial_waterbodies.shp is in the data/ folder")
-        st.stop()
+def get_available_counties():
+    """Get list of available counties from folder structure."""
+    if not DATA_ROOT.exists():
+        return []
 
-    gdf = gpd.read_file(SHAPEFILE_PATH)
+    counties = []
+    for county_dir in DATA_ROOT.iterdir():
+        if county_dir.is_dir():
+            # Check if it has shapefiles
+            shapefiles = list(county_dir.glob("*.shp"))
+            if shapefiles:
+                counties.append(county_dir.name)
+
+    return sorted(counties)
+
+def find_shapefile(county_name):
+    """Find the main shapefile in a county directory."""
+    county_dir = DATA_ROOT / county_name
+    shapefiles = list(county_dir.glob("*.shp"))
+
+    if not shapefiles:
+        return None
+
+    # Prefer files with 'waterbodies' or 'water' in name
+    for shp in shapefiles:
+        if 'water' in shp.name.lower():
+            return shp
+
+    # Otherwise return first shapefile
+    return shapefiles[0]
+
+@st.cache_resource
+def load_shapefile(county_name):
+    """Load shapefile for specific county (cached)."""
+    shapefile_path = find_shapefile(county_name)
+
+    if not shapefile_path or not shapefile_path.exists():
+        raise FileNotFoundError(f"No shapefile found for {county_name}")
+
+    print(f"Loading: {shapefile_path}")
+    gdf = gpd.read_file(shapefile_path)
+
     if "label" not in gdf.columns:
         gdf["label"] = ""
+
     return gdf.reset_index(drop=True)
 
-# Initialize session state
-if "gdf" not in st.session_state:
-    st.session_state.gdf = load_shapefile()
+def get_label(idx):
+    """Get label for feature (checks memory buffer first, then disk)."""
+    # Check in-memory changes first (fastest)
+    if idx in st.session_state.changes:
+        return st.session_state.changes[idx]
+    # Then check shapefile
+    return gdf.at[idx, "label"]
 
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR - COUNTY SELECTION
+# ══════════════════════════════════════════════════════════════════════════════
+st.sidebar.title("🗺️ County Selector")
+
+# Get available counties
+available_counties = get_available_counties()
+
+if not available_counties:
+    st.error("❌ No counties found!")
+    st.info(f"Expected folder structure: `{DATA_ROOT}/{{County Name}}/{{shapefile.shp}}`")
+    st.stop()
+
+# County selection dropdown
+selected_county = st.sidebar.selectbox(
+    "Select County:",
+    available_counties,
+    index=0
+)
+
+# Initialize/switch county in session state
+if "current_county" not in st.session_state or st.session_state.current_county != selected_county:
+    st.session_state.current_county = selected_county
+    st.session_state.gdf = load_shapefile(selected_county)
+    st.session_state.current_idx = 0
+    st.session_state.selected_label = None
+    st.session_state.changes = {}  # In-memory buffer for labels
+    st.session_state.labels_cache = {}  # Cache all labels from disk
+    st.rerun()
+
+# Load data for current county
+gdf = st.session_state.gdf
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SESSION STATE
+# ══════════════════════════════════════════════════════════════════════════════
 if "current_idx" not in st.session_state:
     st.session_state.current_idx = 0
 
@@ -84,10 +180,10 @@ if "changes" not in st.session_state:
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR CONTROLS
 # ══════════════════════════════════════════════════════════════════════════════
-st.sidebar.title("🗺️ Feature Browser")
+st.sidebar.markdown("---")
+st.sidebar.subheader(f"📊 {selected_county} County")
 
 # Feature counter
-gdf = st.session_state.gdf
 n_features = len(gdf)
 saved_count = (gdf["label"] != "").sum() + len(st.session_state.changes)
 progress = int(100 * saved_count / n_features)
@@ -132,7 +228,6 @@ selected = st.sidebar.radio(
     index=0 if st.session_state.selected_label is None else LABEL_OPTIONS.index(st.session_state.selected_label)
 )
 
-# Color for label buttons
 label_colors = {
     "Lake": "🟦",
     "Reservoir": "🟩",
@@ -153,22 +248,40 @@ if selected:
 
 # Save button
 st.sidebar.markdown("---")
-if st.sidebar.button("💾 Save All Changes", use_container_width=True):
-    if st.session_state.changes:
-        for idx, label in st.session_state.changes.items():
-            st.session_state.gdf.at[idx, "label"] = label
+save_col1, save_col2 = st.sidebar.columns([2, 1])
+with save_col1:
+    if st.button("💾 Save All Changes", use_container_width=True):
+        if st.session_state.changes:
+            # Get shapefile path
+            shapefile_path = find_shapefile(selected_county)
 
-        st.session_state.gdf.to_file(SHAPEFILE_PATH)
-        st.session_state.changes.clear()
-        st.sidebar.success(f"✓ Saved {len(st.session_state.changes)} changes!")
-        st.rerun()
-    else:
-        st.sidebar.info("No unsaved changes")
+            # Apply changes to GeoDataFrame
+            for idx, label in st.session_state.changes.items():
+                st.session_state.gdf.at[idx, "label"] = label
+
+            # Save to disk (only once, batched)
+            st.session_state.gdf.to_file(shapefile_path)
+
+            changes_count = len(st.session_state.changes)
+
+            # Clear in-memory buffer
+            st.session_state.changes.clear()
+            st.session_state.labels_cache.clear()
+
+            st.sidebar.success(f"✓ Saved {changes_count} labels!")
+            st.rerun()
+        else:
+            st.sidebar.info("No unsaved changes")
+with save_col2:
+    unsaved = len(st.session_state.changes)
+    if unsaved > 0:
+        st.metric("Unsaved", unsaved)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
 st.title("💧 Water Body Labeler")
+st.markdown(f"**County**: {selected_county} | **Features**: {n_features:,}")
 
 # Get current feature
 row = gdf.iloc[st.session_state.current_idx]
@@ -179,10 +292,7 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Feature", f"{st.session_state.current_idx + 1} / {n_features}")
 with col2:
-    current_label = st.session_state.changes.get(
-        st.session_state.current_idx,
-        gdf.at[st.session_state.current_idx, "label"]
-    )
+    current_label = get_label(st.session_state.current_idx)
     st.metric("Current Label", current_label if current_label else "—")
 with col3:
     st.metric("Geometry Type", current_geom.geom_type)
@@ -257,7 +367,6 @@ st.subheader("📊 Statistics")
 
 col1, col2, col3, col4 = st.columns(4)
 
-# Count by label
 label_counts = gdf["label"].value_counts()
 
 with col1:
@@ -280,9 +389,9 @@ if len(label_counts) > 0:
 # FOOTER
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
     <div style="text-align: center; color: #999; font-size: 0.8em;">
-    💧 Water Body Labeler | Imperial County | v1.0 |
-    <a href="https://github.com">GitHub</a>
+    💧 Water Body Labeler | Multi-County Edition | v1.1 |
+    Currently labeling: <b>{selected_county}</b> County
     </div>
     """, unsafe_allow_html=True)
